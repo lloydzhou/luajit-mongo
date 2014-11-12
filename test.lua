@@ -1,6 +1,6 @@
 local ffi = require "ffi"
 local print = require("utils").prettyPrint
-local mongo = require "mongolua"
+local mongo = require "mongo"
 local bson = mongo.bson
 local oid = mongo.oid
 local client = mongo.client
