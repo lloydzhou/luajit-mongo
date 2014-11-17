@@ -51,19 +51,10 @@ ffi.cdef [[
     bool bson_append_array_begin (bson_t *bson, const char *key, int key_length, bson_t *child);
     bool bson_append_array (bson_t *bson, const char   *key, int key_length, const bson_t *array);
     bool bson_append_array_end (bson_t *bson, bson_t *child);
-    bool bson_append_document_begin (bson_t *bson, const char *key, int key_length, bson_t *child);
     bool bson_append_document (bson_t *bson, const char *key, int key_length, const bson_t *value);
-    bool bson_append_document_end (bson_t *bson, bson_t *child);
-    bool bson_append_binary (bson_t *bson, const char *key, int key_length, bson_subtype_t subtype, const uint8_t *binary, uint32_t length);
     bool bson_append_bool (bson_t *bson, const char *key, int key_length, bool value);
-    bool bson_append_double (bson_t *bson, const char *key, int key_length, double value);
-    bool bson_append_int32 (bson_t *bson, const char *key, int key_length, int32_t value);
     bool bson_append_int64 (bson_t *bson, const char *key, int key_length, int64_t value);
-    bool bson_append_null (bson_t *bson, const char *key, int key_length);
-    bool bson_append_oid (bson_t *bson, const char *key, int key_length, const bson_oid_t *oid);
-    bool bson_append_regex (bson_t *bson, const char *key, int key_length, const char *regex, const char *options);
     bool bson_append_utf8 (bson_t *bson, const char *key, int key_length, const char *value, int length);
-    bool bson_append_now_utc (bson_t *bson, const char *key, int key_length);
 
 ]]
 
@@ -213,12 +204,6 @@ local mongoc_client_pool = ffi.metatype('mongoc_client_pool_t', {
         }
         local f = rawget( func, key )
         return f and function ( ... ) return f( self, ... )  end
-    end,
-    __tostring = function ( pool )
-        return pool.size, pool.min_pool_size, pool.max_pool_size
-        -- return "pool"
-        -- return ffi.typeof(p.size), p.size, p.min_pool_size, p.max_pool_size
-        -- return "min_pool_size: ".. p.min_pool_size .. ", max_pool_size: "..p.max_pool_size..", size: "..p.size
     end
 })
 
@@ -315,6 +300,7 @@ local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
                     i = i + 1
                 end
                 mongoc.bson_append_array_end(r, d)
+                mongoc.bson_append_int64(r, "length", 6, i)
                 -- mongoc.bson_append_array(r, k, #k, d)
                 local err = mongoc.mongoc_cursor_error(c, e)
                 mongoc.bson_append_bool(r, "error", 5, err)
