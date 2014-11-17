@@ -69,21 +69,25 @@ ffi.cdef [[
 
 local bson_t = ffi.metatype("bson_t", {
     __len = function(b) return b.len end,
-    __index = {
-        new = function () return ffi.gc(mongoc.bson_new(), mongoc.bson_destroy) end,
-        from_json = function (str) 
-            local b = ffi.gc(mongoc.bson_new(), mongoc.bson_destroy)
-            local e = ffi.new('bson_error_t')
-            if str then
-                mongoc.bson_init_from_json(b, str, #str, e) 
-            end
-            return b
-        end,
-        to_json = function ( b ) return ffi.string(mongoc.bson_as_json(b, nil)) end,
-        to_table = function ( b ) return cjson.decode(ffi.string(mongoc.bson_as_json(b, nil))) end,
-        get_data = function ( b ) return ffi.string(mongoc.bson_get_data(b), b.len) end 
-    },
-    -- __tostring = function ( b ) return ffi.string(mongoc.bson_get_data(b), b.len) end
+    __index = function (self, key)
+        local sfunc, func = {
+            to_json = function ( b ) return ffi.string(mongoc.bson_as_json(b, nil)) end,
+            to_table = function ( b ) return cjson.decode(ffi.string(mongoc.bson_as_json(b, nil))) end,
+            get_data = function ( b ) return ffi.string(mongoc.bson_get_data(b), b.len) end 
+        }, {
+            new = function () return ffi.gc(mongoc.bson_new(), mongoc.bson_destroy) end,
+            from_json = function (str) 
+                local b = ffi.gc(mongoc.bson_new(), mongoc.bson_destroy)
+                local e = ffi.new('bson_error_t')
+                if str then
+                    mongoc.bson_init_from_json(b, str, #str, e) 
+                end
+                return b
+            end,
+        }
+        local f = rawget(sfunc, key)
+        return f and function () return f(self) end or rawget(func, key)
+    end,
     __tostring = function ( b ) return ffi.string(mongoc.bson_as_json(b, nil))  end
 })
 
@@ -130,6 +134,8 @@ local oid = setmetatable({}, {
 
 ffi.cdef [[
     /* for mongoc */
+    typedef struct _mongoc_uri_t mongoc_uri_t;
+    typedef struct _mongoc_client_pool_t mongoc_client_pool_t;
     typedef struct _mongoc_client_t mongoc_client_t;
     typedef struct _mongoc_database_t mongoc_database_t;
     typedef struct _mongoc_collection_t mongoc_collection_t;
@@ -148,6 +154,13 @@ ffi.cdef [[
        MONGOC_QUERY_EXHAUST           = 1 << 6,
        MONGOC_QUERY_PARTIAL           = 1 << 7,
     } mongoc_query_flags_t;
+
+    void mongoc_uri_destroy (mongoc_uri_t *uri);
+    mongoc_uri_t *mongoc_uri_new (const char *uri_string);
+    mongoc_client_pool_t *mongoc_client_pool_new (const mongoc_uri_t *uri);
+    void mongoc_client_pool_destroy (mongoc_client_pool_t *pool);
+    mongoc_client_t *mongoc_client_pool_pop (mongoc_client_pool_t *pool);
+    void mongoc_client_pool_push (mongoc_client_pool_t *pool, mongoc_client_t *client);
 
     mongoc_client_t *mongoc_client_new (const char *uri_string);
     void mongoc_client_destroy (mongoc_client_t *client);
@@ -188,6 +201,35 @@ ffi.cdef [[
 
 ]]
 
+local mongoc_client_pool = ffi.metatype('mongoc_client_pool_t', {
+    __index = function ( self, key )
+        local func = {
+            pop = function ( pool )
+                return mongoc.mongoc_client_pool_pop( pool )
+            end,
+            push = function ( pool, client )
+                return mongoc.mongoc_client_pool_push( pool, client)
+            end
+        }
+        local f = rawget( func, key )
+        return f and function ( ... ) return f( self, ... )  end
+    end,
+    __tostring = function ( pool )
+        return pool.size, pool.min_pool_size, pool.max_pool_size
+        -- return "pool"
+        -- return ffi.typeof(p.size), p.size, p.min_pool_size, p.max_pool_size
+        -- return "min_pool_size: ".. p.min_pool_size .. ", max_pool_size: "..p.max_pool_size..", size: "..p.size
+    end
+})
+
+local client_pool = setmetatable({}, {
+    __call = function (self, url)
+        local uri = ffi.gc(mongoc.mongoc_uri_new(url), mongoc.mongoc_uri_destroy)
+        return ffi.gc(mongoc.mongoc_client_pool_new(uri), mongoc.mongoc_client_pool_destroy)
+    end
+})
+
+
 local mongo_client = ffi.metatype('mongoc_client_t', {
     __index = function ( self, key )
         local func = {
@@ -216,7 +258,7 @@ local client = setmetatable({}, {
 
 local mongo_database = ffi.metatype('mongoc_database_t', {
     __index = function ( self, key )
-        local func = {
+        local sfunc = {
             cmd = function (d, cmd, fields, skip, limit, size, flags, prefs) 
                 return ffi.gc(mongoc.mongoc_database_command(d, flags or 0, skip or 0, limit or 20, size or 20, cmd, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
             end,
@@ -226,7 +268,8 @@ local mongo_database = ffi.metatype('mongoc_database_t', {
             fs = function ()
             end,
         }
-        return rawget(func, key) or ffi.gc(mongoc.mongoc_database_get_collection(self, key), mongoc.mongoc_collection_destroy)
+        local f = rawget(sfunc, key)
+        return f and function (...) return f(self, ...) end or ffi.gc(mongoc.mongoc_database_get_collection(self, key), mongoc.mongoc_collection_destroy)
     end,
     __tostring = function ( d )
         return ffi.string(mongoc.mongoc_database_get_name(d))
@@ -235,7 +278,7 @@ local mongo_database = ffi.metatype('mongoc_database_t', {
 
 local mongo_collection = ffi.metatype('mongoc_collection_t', {
     __index = function ( self, key )
-        local func = {
+        local sfunc = {
             cmd = function (c, cmd, fields, skip, limit, size, flags, prefs) 
                 return ffi.gc(mongoc.mongoc_collection_command(c, flags or 0, skip or 0, limit or 20, size or 20, cmd, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
             end,
@@ -249,7 +292,8 @@ local mongo_collection = ffi.metatype('mongoc_collection_t', {
                 return ffi.gc(mongoc.mongoc_collection_find(c, flags or 0, skip or 0, limit or 0, size or 0, query, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
             end,
         }
-        return rawget(func, key) or ffi.gc(mongoc.mongoc_database_get_collection(self, key), mongoc.mongoc_collection_destroy)
+        local f = rawget(sfunc, key)
+        return f and function (...) return f(self, ...) end or ffi.gc(mongoc.mongoc_database_get_collection(self, key), mongoc.mongoc_collection_destroy)
     end,
     __tostring = function ( d )
         return ffi.string(mongoc.mongoc_collection_get_name(d))
@@ -257,34 +301,39 @@ local mongo_collection = ffi.metatype('mongoc_collection_t', {
 })
 
 local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
-    __index = {
-        next = function (c, pb)
-            return mongoc.mongoc_cursor_next(c, pb)
-        end,
-        data = function (c)
-            local p, e, r, d, k, i = ffi.new ('const bson_t *[1]'), ffi.new ('bson_error_t *'), bson(), bson('[]'), 'res', 0
-            mongoc.bson_append_array_begin(r, k, #k, d)
-            while mongoc.mongoc_cursor_next(c, p) do 
-                local ii = tostring(i)
-                mongoc.bson_append_document(d, ii, #ii, p[0])
-                i = i + 1
+    __index = function (self, key)
+        local func = {
+            next = function (c, pb)
+                return mongoc.mongoc_cursor_next(c, pb)
+            end,
+            data = function (c)
+                local p, e, r, d, k, i = ffi.new ('const bson_t *[1]'), ffi.new ('bson_error_t *'), bson(), bson('[]'), 'res', 0
+                mongoc.bson_append_array_begin(r, k, #k, d)
+                while mongoc.mongoc_cursor_next(c, p) do 
+                    local ii = tostring(i)
+                    mongoc.bson_append_document(d, ii, #ii, p[0])
+                    i = i + 1
+                end
+                mongoc.bson_append_array_end(r, d)
+                -- mongoc.bson_append_array(r, k, #k, d)
+                local err = mongoc.mongoc_cursor_error(c, e)
+                mongoc.bson_append_bool(r, "error", 5, err)
+                if (err) then
+                    mongoc.bson_append_utf8(r, "message", 7, e.message)
+                end
+                -- print (e.message)
+                return r
             end
-            mongoc.bson_append_array_end(r, d)
-            -- mongoc.bson_append_array(r, k, #k, d)
-            local err = mongoc.mongoc_cursor_error(c, e)
-            mongoc.bson_append_bool(r, "error", 5, err)
-            if (err) then
-                mongoc.bson_append_utf8(r, "message", 7, e.message)
-            end
-            -- print (e.message)
-            return r
-        end,
-    }
+        }
+        local f = rawget(func, key)
+        return f and function (...) return f(self, ...) end
+    end
 })
 
 return {
     bson = bson, 
     oid = oid,
     client = client,
+    client_pool = client_pool,
     c = mongoc
 }
