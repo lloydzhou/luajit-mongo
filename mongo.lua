@@ -34,12 +34,11 @@ local bson = setmetatable( {}, {
 })
 
 local oid_t = ffi.metatype("bson_oid_t", {
-    __index = {
-        from_string = function ( str )
+    __index = function(self, key)
+        local from_string = function ( str )
             local o = ffi.new('bson_oid_t')
             if str and #str >= 24 then
                 if #str > 24 then
-                    local o = ffi.new('bson_oid_t')
                     local j = cjson.decode(str)
                     str = j["$oid"]
                 end
@@ -48,15 +47,16 @@ local oid_t = ffi.metatype("bson_oid_t", {
                 mongoc.bson_oid_init(o, nil)
             end
             return o
-        end,
-        to_json = function ( o )
+        end
+        local to_json = function ( o )
             local s = ffi.new('char[25]')
             mongoc.bson_oid_to_string(o, s)
             return '{"$oid": "' ..ffi.string(s)..'"}'
         end
-    },
-    __tostring = function ( o )
-        local s = ffi.new('char[25]')
+        return key == "to_json" and function () return to_json(self) end or from_string
+    end,
+    __tostring = function ( o ) 
+        local s = ffi.new("char[25]")
         mongoc.bson_oid_to_string(o, s)
         return ffi.string(s)
     end
@@ -93,12 +93,7 @@ local client_pool = setmetatable({}, {
 
 local mongo_client = ffi.metatype('mongoc_client_t', {
     __index = function ( self, key )
-        local func = {
-            testfunc = function ( m )
-                print (m)
-            end
-        }
-        return rawget(func, key) or ffi.gc(mongoc.mongoc_client_get_database(self, key), mongoc.mongoc_database_destroy)
+        return ffi.gc(mongoc.mongoc_client_get_database(self, key), mongoc.mongoc_database_destroy)
     end,
     __tostring = function (self)
         return ''
@@ -119,8 +114,9 @@ local client = setmetatable({}, {
 local mongo_database = ffi.metatype('mongoc_database_t', {
     __index = function ( self, key )
         local sfunc = {
-            cmd = function (d, cmd, fields, skip, limit, size, flags, prefs) 
-                return ffi.gc(mongoc.mongoc_database_command(d, flags or 0, skip or 0, limit or 20, size or 20, cmd, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
+            cmd = function (d, cmd, fields, skip, limit, size, flags, prefs)
+                local size = 20 
+                return ffi.gc(mongoc.mongoc_database_command(d, flags or 0, skip or 0, limit or size, size, bson(cmd), bson(fields or nil), prefs or nil), mongoc.mongoc_cursor_destroy)
             end,
             name = function ( d )
                 return ffi.string(mongoc.mongoc_database_get_name(d))
@@ -140,17 +136,39 @@ local mongo_collection = ffi.metatype('mongoc_collection_t', {
     __index = function ( self, key )
         local sfunc = {
             cmd = function (c, cmd, fields, skip, limit, size, flags, prefs) 
-                return ffi.gc(mongoc.mongoc_collection_command(c, flags or 0, skip or 0, limit or 20, size or 20, cmd, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
+                local size = size or 20
+                return ffi.gc(mongoc.mongoc_collection_command(c, flags or 0, skip or 0, limit or size, size, bson(cmd), bson(fields or nil), prefs or nil), mongoc.mongoc_cursor_destroy)
             end,
             name = function ( c )
                 return ffi.string(mongoc.mongoc_collection_get_name(c))
             end,
-            find = function (c, query, fields, skip, limit, size, flags, prefs) 
-                return ffi.gc(mongoc.mongoc_collection_find(c, flags or 0, skip or 0, limit or 0, size or 0, query, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
+            find = function (c, query, fields, skip, limit, size, flags, prefs)
+                local size = size or 20
+                return ffi.gc(mongoc.mongoc_collection_find(c, flags or 0, skip or 0, limit or size, size, bson(query), bson(fields or nil), prefs or nil), mongoc.mongoc_cursor_destroy)
             end,
-            insert = function (c, query, fields, skip, limit, size, flags, prefs) 
-                return ffi.gc(mongoc.mongoc_collection_find(c, flags or 0, skip or 0, limit or 0, size or 0, query, fields or nil, prefs or nil), mongoc.mongoc_cursor_destroy)
+            insert = function (c, document)
+                local d, i, e, id = bson(document), ffi.new("bson_iter_t"), ffi.new("bson_error_t"), nil
+                if mongoc.bson_iter_init_find_case(i, d, "_id") then
+                    id = mongoc.bson_iter_oid(d)
+                else
+                    id = oid("")
+                    mongoc.bson_append_oid(d, "_id", 3, id)
+                end
+                local r = mongoc.mongoc_collection_insert(c, 0, d, nil, e)
+                return r and id, ffi.string(e.message)
             end,
+            update = function (c, select, update, flags)
+                if not select then return false end
+                local s, u, e = bson(select), bson(update), ffi.new("bson_error_t")
+                local r = mongoc.mongoc_collection_update(c, flags or 3, s, u, nil, e)
+                return r, ffi.string(e.message)
+            end,
+            delete = function (c, select, flags)
+                if not select then return false end
+                local s, e = bson(select), ffi.new("bson_error_t")
+                local r = mongoc.mongoc_collection_delete(c, flags or 0, s, nil, e)
+                return r, ffi.string(e.message)
+            end
         }
         local f = rawget(sfunc, key)
         return f and function (...) return f(self, ...) end or ffi.gc(mongoc.mongoc_database_get_collection(self, key), mongoc.mongoc_collection_destroy)
