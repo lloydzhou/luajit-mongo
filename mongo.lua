@@ -93,6 +93,9 @@ local client_pool = setmetatable({}, {
 
 local mongo_client = ffi.metatype('mongoc_client_t', {
     __index = function ( self, key )
+        if key == 'gridfs' or key == 'fs' then return function(dbname, prefix) 
+            return ffi.gc(mongoc.mongoc_client_get_gridfs(self, dbname, prefix or 'fs', ffi.new('bson_error_t')), mongoc.mongoc_gridfs_destroy) end 
+        end
         return ffi.gc(mongoc.mongoc_client_get_database(self, key), mongoc.mongoc_database_destroy)
     end,
     __tostring = function (self)
@@ -120,9 +123,7 @@ local mongo_database = ffi.metatype('mongoc_database_t', {
             end,
             name = function ( d )
                 return ffi.string(mongoc.mongoc_database_get_name(d))
-            end,
-            fs = function ()
-            end,
+            end
         }
         local f = rawget(sfunc, key)
         return f and function (...) return f(self, ...) end or ffi.gc(mongoc.mongoc_database_get_collection(self, key), mongoc.mongoc_collection_destroy)
@@ -182,10 +183,11 @@ local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
     __index = function (self, key)
         local func = {
             next = function (c, pb)
-                return mongoc.mongoc_cursor_next(c, pb)
+                pb = pb or ffi.new('const bson_t *[1]')
+                return mongoc.mongoc_cursor_next(c, pb) and pb[0] or nil
             end,
             data = function (c)
-                local p, e, r, d, k, i = ffi.new ('const bson_t *[1]'), ffi.new ('bson_error_t *'), bson(), bson('[]'), 'res', 0
+                local p, e, r, d, k, i = ffi.new ('const bson_t *[1]'), ffi.new ('bson_error_t'), bson(), bson('[]'), 'res', 0
                 mongoc.bson_append_array_begin(r, k, #k, d)
                 while mongoc.mongoc_cursor_next(c, p) do 
                     local ii = tostring(i)
@@ -197,6 +199,7 @@ local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
                 local err = mongoc.mongoc_cursor_error(c, e)
                 mongoc.bson_append_bool(r, "error", 5, err)
                 if (err) then
+                    mongoc.bson_append_int64(r, "code", 4, e.code)
                     mongoc.bson_append_utf8(r, "message", 7, e.message)
                 end
                 return r
@@ -206,7 +209,82 @@ local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
         return f and function (...) return f(self, ...) end
     end
 })
-
+local mongoc_gridfs = ffi.metatype('mongoc_gridfs_t', {
+    __index = function(self, key)
+        local new = function(f, name, content_type, chunk_size)
+            local opt = ffi.new('mongoc_gridfs_file_opt_t')
+            opt.filename = name 
+            opt.content_type = content_type or "application/octet-stream"
+            opt.chunk_size = chunk_size or 262144
+            return mongoc.mongoc_gridfs_create_file(f, opt)
+        end
+        local func = {
+            get = function(g, query_or_filename)
+                local e = ffi.new('bson_error_t')
+                local query = type(query_or_filename) == "string" and bson({["filename"] = query_or_filename}) or bson(query_or_filename)
+                print(query)
+                return mongoc.mongoc_gridfs_find_one(g, query, e), e
+            end,
+            put = function(g, filename, content_type, chunk_size)
+                local stream = mongoc.mongoc_stream_file_new_for_path(filename, 0, 0)
+                local opt = ffi.new('mongoc_gridfs_file_opt_t')
+                opt.filename = filename 
+                opt.content_type = content_type or "application/octet-stream"
+                opt.chunk_size = chunk_size or 262144
+                local file = mongoc.mongoc_gridfs_create_file_from_stream(g, stream, opt)
+                return mongoc.mongoc_gridfs_file_save(file)
+            end
+        }
+        local f = rawget(func, key)
+        return f and function(...) return f(self, ...) end or ffi.gc(mongoc.mongoc_gridfs_create_file(self, nil), mongoc.mongoc_gridfs_file_destroy)
+    end,
+    __tostring = function (g)
+        return tostring(mongoc.mongoc_gridfs_get_files(g)) .. ", " .. tostring(mongoc.mongoc_gridfs_get_chunks(g))
+    end
+})
+local mongoc_gridfs_file = ffi.metatype('mongoc_gridfs_file_t', {
+    __index = function(self, key)
+        local func = {
+            save = function(f)
+                return mongoc.mongoc_gridfs_file_save(f)
+            end,
+            read = function(f)
+                local r, size, s = {}, 4096, ffi.gc(mongoc.mongoc_stream_gridfs_new(f), mongoc.mongoc_stream_destroy)
+                local buf = ffi.new('char[?]', size)
+                while 1 do
+                    local bs = mongoc.mongoc_stream_read(s, buf, size-1, -1, 0)
+                    if (bs == 0) then break end
+                    table.insert(r, ffi.string(buf, bs))
+                end
+                return table.concat(r)
+            end,
+            write = function(f, buffer)
+                local iov = ffi.new('mongoc_iovec_t[2]')
+                -- , #buffer, ffi.cast('char*', buffer)
+                -- local stream = mongoc.mongoc_stream_gridfs_new(f)
+                local stream = ffi.new('mongoc_stream_t*')
+                local st = mongoc.mongoc_stream_buffered_new(stream, 4096)
+                iov[0].iov_len = #buffer-1
+                iov[0].iov_base = ffi.cast('char*', buffer)
+                iov[1].iov_len = #buffer
+                iov[1].iov_base = ffi.cast('char*', buffer)
+                print (iov, f)
+                print (iov[0].iov_len, ffi.string(iov[0].iov_base, iov[0].iov_len))
+                print (iov[1].iov_len, ffi.string(iov[1].iov_base, iov[1].iov_len))
+                print (f, iov)
+                -- mongoc.mongoc_stream_writev(st, iov, 0, 0)
+                -- mongoc.mongoc_gridfs_file_save(f)
+                mongoc.mongoc_gridfs_file_writev(f, iov, 1, 0)
+                -- return mongoc.mongoc_gridfs_file_save(f)
+            end
+        }
+        local f = rawget(func, key)
+        return f and function(...) return f(self, ...) end
+    end,
+    -- __tostring = function(f)
+    --     return f and "filename: " .. ffi.string(mongoc.mongoc_gridfs_file_get_filename(f))
+    -- end
+})
 return {
     bson = bson, 
     oid = oid,

@@ -68,6 +68,7 @@ r, e = col.insert({["$name"] = "testname"})
 print ("insert", r, e)
 
 query = {name = "testname1"}
+query1 = {name = "testname"}
 r, e = col.insert(query)
 print ("insert", r, e)
 
@@ -82,12 +83,21 @@ print ("delete", r, e)
 cursor = col.find(query)
 print ("find", cursor.data())
 
-query1 = {name = "testname"}
 r, e = col.update(query, {["$set"] = query1})
 print ("update", r, e)
 
 cursor = col.find(query1)
--- print (cursor:data())
+print (cursor.data())
+cursor = col.find(query1)
+while (1) do 
+    b = cursor.next()
+    if b then 
+        print (b.to_table()) 
+    else
+        break
+    end
+end
+--print ("return bson when call next function.", cursor.next().to_table())
 local p = ffi.new ("const bson_t *[1]")
 while cursor.next(p) do
     print (p[0].to_table())
@@ -97,3 +107,23 @@ print (d.cmd({count = "test"}).data())
 print (col.cmd({count = "test"}).data())
 print (c.test["system.indexes"].find().data())
 
+fs = c.fs('test', 'fs')
+print (c.gridfs('test'))
+print (fs)
+local file, err = fs.get('testname')
+print (file, err.code, ffi.string(err.message), err.domain)
+local file, err = fs.get('testname')
+print (file, err.code, ffi.string(err.message), err.domain)
+
+local file = fs.put('test.lua')
+local file = fs.put('README.md')
+
+local file = fs.get('README.md')
+print (file)
+-- local file = fs.get({["_id"] = {["$oid"] = "547b1b6f69526265c9c18d34"}})
+-- print (file)
+local data = file.read()
+print ("data:", data)
+-- local file = fs.get({["_id"] = {["$oid"] = "547b35697221f13823171c48"}})
+-- print (file)
+file.write("hello world")

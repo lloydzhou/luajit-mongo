@@ -3,7 +3,7 @@ local mongoc = ffi.load("libmongoc-1.0.so")
 local cjson = require "cjson" 
 
 ffi.cdef [[
-
+    typedef long ssize_t;
     typedef struct {
        uint8_t bytes[12];
     } bson_oid_t;
@@ -157,6 +157,15 @@ ffi.cdef [[
     typedef struct _mongoc_cursor_t mongoc_cursor_t;
     typedef struct _mongoc_read_prefs_t mongoc_read_prefs_t;
     typedef struct _mongoc_write_concern_t mongoc_write_concern_t;
+    typedef struct _mongoc_gridfs_file_t     mongoc_gridfs_file_t;
+    typedef struct _mongoc_gridfs_file_opt_t mongoc_gridfs_file_opt_t;
+    typedef struct _mongoc_gridfs_t mongoc_gridfs_t;
+    typedef struct _mongoc_stream_t mongoc_stream_t;
+    /*typedef struct iovec mongoc_iovec_t;*/
+    typedef struct{
+       size_t  iov_len;
+       char   *iov_base;
+    } mongoc_iovec_t;
 
     typedef enum {
        MONGOC_QUERY_NONE              = 0,
@@ -221,6 +230,125 @@ ffi.cdef [[
     bool mongoc_cursor_next (mongoc_cursor_t *cursor, const bson_t **bson);
     void mongoc_cursor_destroy (mongoc_cursor_t *cursor);
     bool mongoc_cursor_error (mongoc_cursor_t *cursor, bson_error_t *error);
+
+    mongoc_gridfs_file_t *mongoc_gridfs_create_file (mongoc_gridfs_t *gridfs, mongoc_gridfs_file_opt_t *opt);
+    mongoc_gridfs_file_t *mongoc_gridfs_find_one (mongoc_gridfs_t *gridfs, const bson_t *query, bson_error_t *error);
+    mongoc_gridfs_file_t *mongoc_gridfs_find_one_by_filename (mongoc_gridfs_t *gridfs, const char *filename, bson_error_t *error);
+    
+    mongoc_collection_t *mongoc_gridfs_get_files (mongoc_gridfs_t *gridfs);
+    mongoc_collection_t *mongoc_gridfs_get_chunks (mongoc_gridfs_t *gridfs);
+    void mongoc_gridfs_destroy (mongoc_gridfs_t *gridfs);
+    bool mongoc_gridfs_remove_by_filename (mongoc_gridfs_t *gridfs, const char *filename, bson_error_t *error);
+
+    char* mongoc_gridfs_file_get_filename (mongoc_gridfs_file_t *file);
+    int64_t mongoc_gridfs_file_get_length (mongoc_gridfs_file_t *file);
+    int32_t mongoc_gridfs_file_get_chunk_size (mongoc_gridfs_file_t *file);
+    int64_t mongoc_gridfs_file_get_upload_date (mongoc_gridfs_file_t *file);
+    bool mongoc_gridfs_file_save (mongoc_gridfs_file_t *file);
+    void mongoc_gridfs_file_destroy (mongoc_gridfs_file_t *file);
+    ssize_t mongoc_gridfs_file_writev (mongoc_gridfs_file_t *file, mongoc_iovec_t *iov, size_t iovcnt, uint32_t timeout_msec);
+    ssize_t  mongoc_gridfs_file_readv (mongoc_gridfs_file_t *file, mongoc_iovec_t *iov, size_t iovcnt, size_t min_bytes, uint32_t timeout_msec);
+    int mongoc_gridfs_file_seek (mongoc_gridfs_file_t *file, uint64_t delta, int whence);
+    uint64_t mongoc_gridfs_file_tell (mongoc_gridfs_file_t *file);
+    bool mongoc_gridfs_file_remove (mongoc_gridfs_file_t *file, bson_error_t *error);
+    bool mongoc_gridfs_file_error (mongoc_gridfs_file_t *file, bson_error_t *error);
+
+
+typedef struct _mongoc_gridfs_file_page_t
+{
+   const uint8_t *read_buf;
+   uint8_t       *buf;
+   uint32_t       len;
+   uint32_t       chunk_size;
+   uint32_t       offset;
+}mongoc_gridfs_file_page_t;
+struct _mongoc_gridfs_file_opt_t
+{
+   const char   *md5;
+   const char   *filename;
+   const char   *content_type;
+   const bson_t *aliases;
+   const bson_t *metadata;
+   uint32_t      chunk_size;
+};
+struct _mongoc_gridfs_file_t
+{
+   mongoc_gridfs_t           *gridfs;
+   bson_t                     bson;
+   mongoc_gridfs_file_page_t *page;
+   uint64_t                   pos;
+   bson_error_t               error;
+   bool                       failed;
+   mongoc_cursor_t           *cursor;
+   uint32_t                   cursor_range[2];
+   bool                       is_dirty;
+
+   bson_value_t               files_id;
+   int64_t                    length;
+   int32_t                    chunk_size;
+   int64_t                    upload_date;
+
+   char                      *md5;
+   char                      *filename;
+   char                      *content_type;
+   bson_t                     aliases;
+   bson_t                     metadata;
+   const char                *bson_md5;
+   const char                *bson_filename;
+   const char                *bson_content_type;
+   bson_t                     bson_aliases;
+   bson_t                     bson_metadata;
+};
+ssize_t          mongoc_stream_read            (mongoc_stream_t       *stream,
+                                                void                  *buf,
+                                                size_t                 count,
+                                                size_t                 min_bytes,
+                                                int32_t                timeout_msec);
+ssize_t          mongoc_stream_writev          (mongoc_stream_t       *stream,
+                                                mongoc_iovec_t        *iov,
+                                                size_t                 iovcnt,
+                                                int32_t                timeout_msec);
+void             mongoc_stream_destroy         (mongoc_stream_t       *stream);
+mongoc_stream_t *
+mongoc_stream_buffered_new (mongoc_stream_t *base_stream,
+                            size_t           buffer_size);
+
+typedef struct _mongoc_stream_t mongoc_stream_t;
+typedef size_t socklen_t;
+struct _mongoc_stream_t
+{
+   int              type;
+   void             (*destroy)         (mongoc_stream_t *stream);
+   int              (*close)           (mongoc_stream_t *stream);
+   int              (*flush)           (mongoc_stream_t *stream);
+   ssize_t          (*writev)          (mongoc_stream_t *stream,
+                                        mongoc_iovec_t  *iov,
+                                        size_t           iovcnt,
+                                        int32_t          timeout_msec);
+   ssize_t          (*readv)           (mongoc_stream_t *stream,
+                                        mongoc_iovec_t  *iov,
+                                        size_t           iovcnt,
+                                        size_t           min_bytes,
+                                        int32_t          timeout_msec);
+   int              (*setsockopt)      (mongoc_stream_t *stream,
+                                        int              level,
+                                        int              optname,
+                                        void            *optval,
+                                        socklen_t        optlen);
+   mongoc_stream_t *(*get_base_stream) (mongoc_stream_t *stream);
+   void            *padding [8];
+};
+mongoc_stream_t *mongoc_stream_file_new_for_path (const char           *path,
+                                                  int                   flags,
+                                                  int                   mode);
+mongoc_gridfs_file_t      *mongoc_gridfs_create_file_from_stream (mongoc_gridfs_t          *gridfs,
+                                                                  mongoc_stream_t          *stream,
+                                                                  mongoc_gridfs_file_opt_t *opt);
+
+
+    typedef struct _mongoc_stream_t mongoc_stream_t;
+    mongoc_stream_t *mongoc_stream_gridfs_new (mongoc_gridfs_file_t *file);
+    ssize_t mongoc_stream_readv (mongoc_stream_t *stream, mongoc_iovec_t *iov, size_t iovcnt, size_t min_bytes, int32_t timeout_msec);
 
 ]]
 
