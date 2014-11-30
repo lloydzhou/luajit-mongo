@@ -37,7 +37,7 @@ define location, need another lua module [router](https://github.com/lloydzhou/r
     
            ngx.eof()
        ';
-   }
+    }
 
 
 
