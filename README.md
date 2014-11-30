@@ -3,6 +3,44 @@ luajit-mongo
 
 mongo driver by using ffi, based on mongo-c-driver 1.0 or above
 
+using for nginx
+============
+init the mongodb connection, it can using in every location.
+
+    init_by_lua '
+           mongo  = require "mongo"
+           c = mongo.client("mongodb://127.0.0.1:27017")
+    ';
+
+define location, need another lua module [router](https://github.com/lloydzhou/router.lua).
+
+    location /mongo {
+       default_type application/json;
+       content_by_lua '
+           local router = require "router"
+           local r = router.new()
+    
+           r:get("/mongo/:db/:coll", function(p)
+               ngx.print(c[p.db][p.coll].find(mongo.bson(), mongo.bson(), 0, 20).data().to_json())
+           end)
+    
+           if r:execute(
+               string.lower(ngx.req.get_method()),
+               ngx.var.request_uri,
+               ngx.req.get_uri_args()
+           ) then
+               ngx.status = 200
+           else
+               ngx.status = 404
+               ngx.print("{\"error\": true, \"message\": \"Not found!\"}")
+           end
+    
+           ngx.eof()
+       ';
+   }
+
+
+
 test
 ===========
     local ffi = require "ffi"
