@@ -211,32 +211,35 @@ local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
 })
 local mongoc_gridfs = ffi.metatype('mongoc_gridfs_t', {
     __index = function(self, key)
-        local new = function(f, name, content_type, chunk_size)
+        local getopt = function(filename, content_type, chunk_size)
             local opt = ffi.new('mongoc_gridfs_file_opt_t')
-            opt.filename = name 
+            opt.filename = filename 
             opt.content_type = content_type or "application/octet-stream"
             opt.chunk_size = chunk_size or 262144
-            return mongoc.mongoc_gridfs_create_file(f, opt)
+            return opt
         end
         local func = {
             get = function(g, query_or_filename)
                 local e = ffi.new('bson_error_t')
                 local query = type(query_or_filename) == "string" and bson({["filename"] = query_or_filename}) or bson(query_or_filename)
-                print(query)
                 return mongoc.mongoc_gridfs_find_one(g, query, e), e
             end,
             put = function(g, filename, content_type, chunk_size)
-                local stream = mongoc.mongoc_stream_file_new_for_path(filename, 0, 0)
-                local opt = ffi.new('mongoc_gridfs_file_opt_t')
-                opt.filename = filename 
-                opt.content_type = content_type or "application/octet-stream"
-                opt.chunk_size = chunk_size or 262144
+                local stream, opt = mongoc.mongoc_stream_file_new_for_path(filename, 0, 0), getopt(filename, content_type, chunk_size)
                 local file = mongoc.mongoc_gridfs_create_file_from_stream(g, stream, opt)
                 return mongoc.mongoc_gridfs_file_save(file)
+            end,
+            create = function(g, filename)
+                local file = mongoc.mongoc_gridfs_create_file(self, getopt(filename))
+                mongoc.mongoc_gridfs_file_save(file)
+                return file
+            end,
+            files = function(g)
+
             end
         }
         local f = rawget(func, key)
-        return f and function(...) return f(self, ...) end or ffi.gc(mongoc.mongoc_gridfs_create_file(self, nil), mongoc.mongoc_gridfs_file_destroy)
+        return f and function(...) return f(self, ...) end or func.create(self, key)
     end,
     __tostring = function (g)
         return tostring(mongoc.mongoc_gridfs_get_files(g)) .. ", " .. tostring(mongoc.mongoc_gridfs_get_chunks(g))
@@ -245,11 +248,8 @@ local mongoc_gridfs = ffi.metatype('mongoc_gridfs_t', {
 local mongoc_gridfs_file = ffi.metatype('mongoc_gridfs_file_t', {
     __index = function(self, key)
         local func = {
-            save = function(f)
-                return mongoc.mongoc_gridfs_file_save(f)
-            end,
             read = function(f)
-                local r, size, s = {}, 4096, ffi.gc(mongoc.mongoc_stream_gridfs_new(f), mongoc.mongoc_stream_destroy)
+                local r, size, s = {}, 4096, mongoc.mongoc_stream_gridfs_new(f)
                 local buf = ffi.new('char[?]', size)
                 while 1 do
                     local bs = mongoc.mongoc_stream_read(s, buf, size-1, -1, 0)
@@ -259,27 +259,21 @@ local mongoc_gridfs_file = ffi.metatype('mongoc_gridfs_file_t', {
                 return table.concat(r)
             end,
             write = function(f, buffer)
-                local iov = ffi.new('mongoc_iovec_t[2]')
-                -- , #buffer, ffi.cast('char*', buffer)
-                -- local stream = mongoc.mongoc_stream_gridfs_new(f)
-                local stream = ffi.new('mongoc_stream_t*')
-                local st = mongoc.mongoc_stream_buffered_new(stream, 4096)
-                iov[0].iov_len = #buffer-1
-                iov[0].iov_base = ffi.cast('char*', buffer)
-                iov[1].iov_len = #buffer
-                iov[1].iov_base = ffi.cast('char*', buffer)
-                print (iov, f)
-                print (iov[0].iov_len, ffi.string(iov[0].iov_base, iov[0].iov_len))
-                print (iov[1].iov_len, ffi.string(iov[1].iov_base, iov[1].iov_len))
-                print (f, iov)
-                -- mongoc.mongoc_stream_writev(st, iov, 0, 0)
-                -- mongoc.mongoc_gridfs_file_save(f)
-                mongoc.mongoc_gridfs_file_writev(f, iov, 1, 0)
-                -- return mongoc.mongoc_gridfs_file_save(f)
+                return mongoc.mongoc_stream_write(mongoc.mongoc_stream_gridfs_new(f), ffi.cast('char*', buffer), #buffer, 0) 
             end
         }
+        local cfunc = function(key)
+            local t = { ['get_filename'] = 1, ['get_length'] = 1,  ['get_chunk_size'] = 1, ['get_upload_date'] = 1, 
+                        ['save'] = 1, ['seek'] = 1, ['tell'] = 1, ['remove'] = 1, ['error'] = 1}
+            if not rawget(t , key) then 
+                return function() print ("function \"mongoc_gridfs_file_" .. key .. "\" not avalible!") end 
+            end
+            -- if function not define in mongoc, will catch exception.
+            local cf = mongoc["mongoc_gridfs_file_" .. key]
+            return cf and function(...) return cf(self, ...) end
+        end
         local f = rawget(func, key)
-        return f and function(...) return f(self, ...) end
+        return f and function(...) return f(self, ...) end or cfunc(key)
     end,
     -- __tostring = function(f)
     --     return f and "filename: " .. ffi.string(mongoc.mongoc_gridfs_file_get_filename(f))
