@@ -147,6 +147,38 @@ ffi.cdef [[
     bool bson_append_oid (bson_t *bson, const char *key, int key_length, const bson_oid_t *oid);
     const bson_oid_t * bson_iter_oid (const bson_iter_t *iter);
 
+    typedef struct {
+       bool (*visit_before) (const bson_iter_t *iter, const char *key, void *data);
+       bool (*visit_after) (const bson_iter_t *iter, const char *key, void *data);
+       void (*visit_corrupt)    (const bson_iter_t *iter, void *data);
+       bool (*visit_double)     (const bson_iter_t *iter, const char *key, double v_double, void *data);
+       bool (*visit_utf8)       (const bson_iter_t *iter, const char *key, size_t v_utf8_len, const char *v_utf8, void *data);
+       bool (*visit_document)   (const bson_iter_t *iter, const char *key, const bson_t *v_document, void *data);
+       bool (*visit_array)      (const bson_iter_t *iter, const char *key, const bson_t *v_array, void *data);
+       bool (*visit_binary)     (const bson_iter_t *iter, const char *key, bson_subtype_t v_subtype, size_t v_binary_len, const uint8_t *v_binary, void *data);
+       bool (*visit_undefined)  (const bson_iter_t *iter, const char *key, void *data);
+       bool (*visit_oid)        (const bson_iter_t *iter, const char *key, const bson_oid_t *v_oid, void *data);
+       bool (*visit_bool)       (const bson_iter_t *iter, const char *key, bool v_bool, void *data);
+       bool (*visit_date_time)  (const bson_iter_t *iter, const char *key, int64_t msec_since_epoch, void *data);
+       bool (*visit_null)       (const bson_iter_t *iter, const char *key, void *data);
+       bool (*visit_regex)      (const bson_iter_t *iter, const char *key, const char *v_regex, const char *v_options, void *data);
+       bool (*visit_dbpointer)  (const bson_iter_t *iter, const char *key, size_t v_collection_len, const char *v_collection, const bson_oid_t *v_oid, void *data);
+       bool (*visit_code)       (const bson_iter_t *iter, const char *key, size_t v_code_len, const char *v_code, void *data);
+       bool (*visit_symbol)     (const bson_iter_t *iter, const char *key, size_t v_symbol_len, const char *v_symbol, void *data);
+       bool (*visit_codewscope) (const bson_iter_t *iter, const char *key, size_t v_code_len, const char *v_code, const bson_t *v_scope, void *data);
+       bool (*visit_int32)      (const bson_iter_t *iter, const char *key, int32_t v_int32, void *data);
+       bool (*visit_timestamp)  (const bson_iter_t *iter, const char *key, uint32_t v_timestamp, uint32_t v_increment, void *data);
+       bool (*visit_int64)      (const bson_iter_t *iter, const char *key, int64_t v_int64, void *data);
+       bool (*visit_maxkey)     (const bson_iter_t *iter, const char *key, void *data);
+       bool (*visit_minkey)     (const bson_iter_t *iter, const char *key,void *data);
+       void *padding[9];
+    } bson_visitor_t;
+
+    char *bson_utf8_escape_for_json (const char *utf8, ssize_t utf8_len);
+    ssize_t b64_ntop (uint8_t const *src, size_t srclength, char *target, size_t targsize);
+    bool bson_iter_init (bson_iter_t  *iter, const bson_t *bson);
+    bool bson_iter_visit_all (bson_iter_t *iter, const bson_visitor_t *visitor, void *data);
+
     /* for mongoc */
     typedef struct _mongoc_uri_t mongoc_uri_t;
     typedef struct _mongoc_client_pool_t mongoc_client_pool_t;
@@ -262,6 +294,7 @@ ffi.cdef [[
     mongoc_stream_t *mongoc_stream_file_new_for_path (const char *path, int flags, int mode);
     mongoc_gridfs_file_t *mongoc_gridfs_create_file_from_stream (mongoc_gridfs_t *gridfs, mongoc_stream_t *stream, mongoc_gridfs_file_opt_t *opt);
     mongoc_stream_t *mongoc_stream_gridfs_new (mongoc_gridfs_file_t *file);
+
 ]]
 
 return {

@@ -203,6 +203,9 @@ local mongo_cursor = ffi.metatype('mongoc_cursor_t', {
                     mongoc.bson_append_utf8(r, "message", 7, e.message)
                 end
                 return r
+            end,
+            table = function(c)
+                return bson_decode(func.data(c))
             end
         }
         local f = rawget(func, key)
@@ -279,10 +282,71 @@ local mongoc_gridfs_file = ffi.metatype('mongoc_gridfs_file_t', {
     --     return f and "filename: " .. ffi.string(mongoc.mongoc_gridfs_file_get_filename(f))
     -- end
 })
+function bson_decode (bson, keys, depth)
+    local values, depth = setmetatable({}, {__index={isobj=keys ~= false}}), depth or 0
+    if depth > 1000 then return values end
+    local append = function(k,v)
+        if values.isobj then
+            values[ffi.string(k)] = v
+        else
+            table.insert(values, v)
+        end
+        return false
+    end
+
+    local v = ffi.new("bson_visitor_t")
+    v.visit_int32 = function(i, k, v, d) return append(k, v) end
+    v.visit_int64 = function(i, k, v, d) return append(k, v) end
+    v.visit_double = function(i, k, v, d) return append(k, v) end
+    v.visit_utf8 = function(i, k, vl, v, d) return append(k, ffi.string(v, vl)) end
+    v.visit_document = function(i, k, vd, d) return append(k, bson_decode(vd, true, depth+1)) end
+    v.visit_array = function(i, k, vd, d) return append(k, bson_decode(vd, false, depth+1)) end
+    v.visit_bool = function(i, k, vb, d) return append(k, vb) end
+    v.visit_null = function(i, k, d) return append(k, nil) end
+    v.visit_regex = function(i, k, r, o, d) return append(k, {["$regex"] = ffi.string(r), ["$options"] = ffi.string(o)}) end
+    v.visit_date_time = function(i, k, m, d) return append(k, {["$date"] = m}) end
+    v.visit_timestamp = function(i, k, t, i, d) return append(k, {["$timestamp"] = {["t"] = t, ["i"] = i}}) end
+    v.visit_maxkey = function(i, k, d) return append(k, {["$maxkey"] = 1}) end
+    v.visit_minkey = function(i, k, d) return append(k, {["$minkey"] = 1}) end
+    v.visit_undefined = function(i, k, d) return false end
+    v.visit_code = function(i, k, cl, c, d) return append(k, ffi.string(mongoc.bson_utf8_escape_for_json(c, cl))) end
+    v.visit_codewscope = function(i, k, cl, c, s, d) return append(k, ffi.string(mongoc.bson_utf8_escape_for_json(c, cl))) end
+    v.visit_symbol = function(i, k, sl, s, d) return append(k, ffi.string(s, sl)) end
+    v.visit_oid = function(i, k, vo, d)
+        local s = ffi.new("char[25]")
+        mongoc.bson_oid_to_string(vo, s)
+        append(k, {["$oid"] = ffi.string(s)})
+        return false
+    end
+    v.visit_binary = function(i, k, sub, bl, vb, d)
+        local b64l = (bl/3+1)*4+1
+        local b64 = mongoc.bson_malloc0(b64l)
+        mongoc.b64_ntop(vb, bl, b64, b64l)
+        append(k, {["$type"] = sub, ["$binary"] = ffi.string(b64, b64l)})
+        return false
+    end
+    v.visit_dbpointer = function(i, k, collen, col, oid, d)
+        local dp = {["$ref"] = ffi.string(col, collen)}
+        if oid then
+            local s = ffi.new("char[25]")
+            mongoc.bson_oid_to_string(oid, s)
+            dp["$id"] = ffi.string(s)
+        end
+        return append(k, dp)
+    end
+
+    local i = ffi.new("bson_iter_t")
+    if mongoc.bson_iter_init(i, bson) then
+        mongoc.bson_iter_visit_all(i, v, nil)
+    end
+    i, v = nil, nil
+    return values
+end
 return {
     bson = bson, 
     oid = oid,
     client = client,
     client_pool = client_pool,
+    bson_decode = bson_decode,
     c = mongoc
 }

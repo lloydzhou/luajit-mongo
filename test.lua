@@ -68,7 +68,7 @@ r, e = col.insert({["$name"] = "testname"})
 print ("insert", r, e)
 
 query = {name = "testname1"}
-query1 = {name = "testname"}
+query1 = {name = "testname", atime={["$date"] = 1339582446756}}
 r, e = col.insert(query)
 print ("insert", r, e)
 
@@ -106,6 +106,7 @@ end
 print (d.cmd({count = "test"}).data())
 print (col.cmd({count = "test"}).data())
 print (c.test["system.indexes"].find().data())
+print (c.test["fs.chunks"].find().data())
 
 fs = c.fs('test', 'fs')
 print (c.gridfs('test'))
