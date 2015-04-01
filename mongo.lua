@@ -8,7 +8,7 @@ local bson_t = ffi.metatype("bson_t", {
     __index = function (self, key)
         local sfunc, func = {
             to_json = function ( b ) return ffi.string(mongoc.bson_as_json(b, nil)) end,
-            to_table = function ( b ) return cjson.decode(ffi.string(mongoc.bson_as_json(b, nil))) end,
+            to_table = function ( b ) return bson_decode(b) end,
             get_data = function ( b ) return ffi.string(mongoc.bson_get_data(b), b.len) end 
         }, {
             new = function () return ffi.gc(mongoc.bson_new(), mongoc.bson_destroy) end,
