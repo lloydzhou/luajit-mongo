@@ -87,7 +87,7 @@ r, e = col.update(query, {["$set"] = query1})
 print ("update", r, e)
 
 cursor = col.find(query1)
-print (cursor.data())
+print (cursor.table()["res"])
 cursor = col.find(query1)
 while (1) do 
     b = cursor.next()
@@ -106,7 +106,7 @@ end
 print (d.cmd({count = "test"}).data())
 print (col.cmd({count = "test"}).data())
 print (c.test["system.indexes"].find().data())
-print (c.test["fs.chunks"].find().data())
+--print (c.test["fs.chunks"].find().data())
 
 fs = c.fs('test', 'fs')
 print (c.gridfs('test'))
