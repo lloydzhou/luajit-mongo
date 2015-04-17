@@ -278,7 +278,9 @@ ffi.cdef [[
     void mongoc_gridfs_destroy (mongoc_gridfs_t *gridfs);
     bool mongoc_gridfs_remove_by_filename (mongoc_gridfs_t *gridfs, const char *filename, bson_error_t *error);
 
-    char* mongoc_gridfs_file_get_filename (mongoc_gridfs_file_t *file);
+    const char* mongoc_gridfs_file_get_filename (mongoc_gridfs_file_t *file);
+    const char* mongoc_gridfs_file_get_md5 (mongoc_gridfs_file_t *file);
+    const bson_oid_t* mongoc_gridfs_file_get_files_id (mongoc_gridfs_file_t *file);
     int64_t mongoc_gridfs_file_get_length (mongoc_gridfs_file_t *file);
     int32_t mongoc_gridfs_file_get_chunk_size (mongoc_gridfs_file_t *file);
     int64_t mongoc_gridfs_file_get_upload_date (mongoc_gridfs_file_t *file);
