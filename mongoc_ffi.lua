@@ -189,11 +189,40 @@ ffi.cdef [[
     typedef struct _mongoc_cursor_t mongoc_cursor_t;
     typedef struct _mongoc_read_prefs_t mongoc_read_prefs_t;
     typedef struct _mongoc_write_concern_t mongoc_write_concern_t;
-    typedef struct _mongoc_gridfs_file_t     mongoc_gridfs_file_t;
+    /*typedef struct _mongoc_gridfs_file_t     mongoc_gridfs_file_t;*/
     typedef struct _mongoc_gridfs_file_opt_t mongoc_gridfs_file_opt_t;
     typedef struct _mongoc_gridfs_t mongoc_gridfs_t;
     typedef struct _mongoc_stream_t mongoc_stream_t;
     typedef struct _mongoc_stream_t mongoc_stream_t;
+    typedef struct _mongoc_gridfs_file_page_t     mongoc_gridfs_file_page_t;
+typedef struct
+{
+   mongoc_gridfs_t           *gridfs;
+   bson_t                     bson;
+   mongoc_gridfs_file_page_t *page;
+   uint64_t                   pos;
+   bson_error_t               error;
+   bool                       failed;
+   mongoc_cursor_t           *cursor;
+   uint32_t                   cursor_range[2];
+   bool                       is_dirty;
+
+   bson_value_t               files_id;
+   int64_t                    length;
+   int32_t                    chunk_size;
+   int64_t                    upload_date;
+
+   char                      *md5;
+   char                      *filename;
+   char                      *content_type;
+   bson_t                     aliases;
+   bson_t                     metadata;
+   const char                *bson_md5;
+   const char                *bson_filename;
+   const char                *bson_content_type;
+   bson_t                     bson_aliases;
+   bson_t                     bson_metadata;
+} mongoc_gridfs_file_t;
     struct _mongoc_gridfs_file_opt_t {
        const char   *md5;
        const char   *filename;
