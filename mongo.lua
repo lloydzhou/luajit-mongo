@@ -262,6 +262,11 @@ local mongoc_gridfs_file = ffi.metatype('mongoc_gridfs_file_t', {
             end,
             write = function(f, buffer)
                 return mongoc.mongoc_stream_write(mongoc.mongoc_stream_gridfs_new(f), ffi.cast('char*', buffer), #buffer, 0) 
+            end,
+            id = function(f)
+                local id = ffi.new('bson_value_t')
+                mongoc.mongoc_gridfs_file_get_id(f, id)
+                return id.value.v_oid
             end
         }
         local cfunc = function(key)
