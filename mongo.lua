@@ -265,7 +265,7 @@ local mongoc_gridfs_file = ffi.metatype('mongoc_gridfs_file_t', {
             end
         }
         local cfunc = function(key)
-            local t = {['get_files_id'] = 1, ['get_filename'] = 1, ['get_length'] = 1,  ['get_chunk_size'] = 1, ['get_upload_date'] = 1,
+            local t = {['get_id'] = 1, ['get_filename'] = 1, ['get_length'] = 1,  ['get_chunk_size'] = 1, ['get_upload_date'] = 1,
                         ['save'] = 1, ['seek'] = 1, ['tell'] = 1, ['remove'] = 1, ['error'] = 1}
             if not rawget(t , key) then 
                 return function() print ("function \"mongoc_gridfs_file_" .. key .. "\" not avalible!") end 
